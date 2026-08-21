@@ -1,3 +1,41 @@
 package ru.rudrive.voyahadb;
-import java.net.*; import java.util.*; import java.util.concurrent.*;
-public class NetworkScanner { public interface Listener{void onProgress(String t);void onFound(String ip);void onFinished(boolean found);} private volatile boolean cancelled; public void cancel(){cancelled=true;} public void scan5555(Listener l){cancelled=false;new Thread(()->{String local=findLocalIpv4();if(local==null){l.onProgress("Не найден локальный IPv4");l.onFinished(false);return;}String prefix=local.substring(0,local.lastIndexOf('.')+1);l.onProgress("Сканирование "+prefix+"0/24, порт 5555…");ExecutorService pool=Executors.newFixedThreadPool(40);CompletionService<String> cs=new ExecutorCompletionService<>(pool);int n=0;for(int i=1;i<=254;i++){String ip=prefix+i;if(ip.equals(local))continue;n++;cs.submit(()->isPortOpen(ip,5555,180)?ip:null);}boolean found=false;try{for(int i=0;i<n&&!cancelled;i++){String ip=cs.take().get();if(ip!=null){found=true;l.onFound(ip);break;}}}catch(Exception ignored){}finally{pool.shutdownNow();}l.onFinished(found);},"voyah-net-scan").start();} private static boolean isPortOpen(String ip,int port,int timeout){try(Socket s=new Socket()){s.connect(new InetSocketAddress(ip,port),timeout);return true;}catch(Exception e){return false;}} public static String findLocalIpv4(){try{Enumeration<NetworkInterface> es=NetworkInterface.getNetworkInterfaces();List<String> c=new ArrayList<>();while(es.hasMoreElements()){NetworkInterface ni=es.nextElement();if(!ni.isUp()||ni.isLoopback())continue;Enumeration<InetAddress> as=ni.getInetAddresses();while(as.hasMoreElements()){InetAddress a=as.nextElement();if(a instanceof Inet4Address&&!a.isLoopbackAddress()&&a.isSiteLocalAddress()){String h=a.getHostAddress();if(ni.getName().startsWith("wlan"))return h;c.add(h);}}}return c.isEmpty()?null:c.get(0);}catch(Exception e){return null;}} }
+
+import android.content.Context;
+import java.util.concurrent.*;
+
+public class NetworkScanner {
+    public interface Listener { void onProgress(String text); void onFound(String ip); void onFinished(boolean found); }
+    private final Context context;
+    private volatile boolean cancelled;
+
+    public NetworkScanner(Context context) { this.context = context.getApplicationContext(); }
+    public void cancel() { cancelled = true; }
+
+    public void scan5555(Listener listener) {
+        cancelled = false;
+        new Thread(() -> {
+            String local = NetworkUtils.findLocalIpv4();
+            if (local == null || local.lastIndexOf('.') < 0) {
+                listener.onProgress("Не найден Wi‑Fi IPv4. Подключите телефон к сети, где находится VOYAH.");
+                listener.onFinished(false); return;
+            }
+            String prefix = local.substring(0, local.lastIndexOf('.') + 1);
+            listener.onProgress("Сканирование " + prefix + "0/24 :5555…");
+            ExecutorService pool = Executors.newFixedThreadPool(32);
+            CompletionService<String> cs = new ExecutorCompletionService<>(pool);
+            int submitted = 0;
+            for (int i=1;i<=254;i++) {
+                String ip = prefix + i; if (ip.equals(local)) continue; submitted++;
+                cs.submit(() -> NetworkUtils.isPortOpen(context, ip, 5555, 300) ? ip : null);
+            }
+            boolean found = false;
+            try {
+                for (int i=0;i<submitted && !cancelled;i++) {
+                    String ip = cs.take().get();
+                    if (ip != null) { found = true; listener.onFound(ip); break; }
+                }
+            } catch (Exception ignored) {} finally { pool.shutdownNow(); }
+            listener.onFinished(found);
+        }, "voyah-net-scan").start();
+    }
+}
