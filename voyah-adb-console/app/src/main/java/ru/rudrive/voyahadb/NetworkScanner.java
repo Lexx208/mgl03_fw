@@ -11,22 +11,22 @@ public class NetworkScanner {
     public NetworkScanner(Context context) { this.context = context.getApplicationContext(); }
     public void cancel() { cancelled = true; }
 
-    public void scan5555(Listener listener) {
+    public void scan(int port, Listener listener) {
         cancelled = false;
         new Thread(() -> {
             String local = NetworkUtils.findLocalIpv4();
             if (local == null || local.lastIndexOf('.') < 0) {
-                listener.onProgress("Не найден Wi‑Fi IPv4. Подключите телефон к сети, где находится VOYAH.");
+                listener.onProgress("Не найден Wi‑Fi IPv4. Подключите телефон к AP Hotspot VOYAH.");
                 listener.onFinished(false); return;
             }
             String prefix = local.substring(0, local.lastIndexOf('.') + 1);
-            listener.onProgress("Сканирование " + prefix + "0/24 :5555…");
+            listener.onProgress("Сканирование " + prefix + "0/24 :" + port + "…");
             ExecutorService pool = Executors.newFixedThreadPool(32);
             CompletionService<String> cs = new ExecutorCompletionService<>(pool);
             int submitted = 0;
             for (int i=1;i<=254;i++) {
                 String ip = prefix + i; if (ip.equals(local)) continue; submitted++;
-                cs.submit(() -> NetworkUtils.isPortOpen(context, ip, 5555, 300) ? ip : null);
+                cs.submit(() -> NetworkUtils.isPortOpen(context, ip, port, 300) ? ip : null);
             }
             boolean found = false;
             try {
