@@ -48,19 +48,15 @@ public class MainActivity extends Activity implements AdbClient.Listener {
         }
 
         TextView title=text("VOYAH ADB Console",18);title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);root.addView(title);
-        root.addView(text("v1.3 • VOYAH FREE SA8155 • IHBC / Matrix",12));
+        root.addView(text("v1.4 • VOYAH FREE SA8155 • IHBC / Matrix",12));
         status=text("Отключено",13);root.addView(status);
         wifiInfo=text(NetworkUtils.describe(this),11);root.addView(wifiInfo);
 
-        TextView quick=text("Быстрое подключение к VOYAH FREE",14);quick.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);root.addView(quick);
-        TextView hint=text("1) Включите AP Hotspot в автомобиле  2) Подключите телефон к Wi‑Fi автомобиля  3) Нажмите кнопку ниже",11);root.addView(hint);
+        TextView quick=text("Подключение к VOYAH FREE",14);quick.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);root.addView(quick);
+        TextView hint=text("Включите AP Hotspot в автомобиле и подключите телефон к Wi‑Fi автомобиля.",11);root.addView(hint);
         Button free=button("ПОДКЛЮЧИТЬСЯ К FREE  •  192.168.43.1:5578",v->connectFree());
         root.addView(free,new LinearLayout.LayoutParams(-1,dp(48)));
-
-        LinearLayout fr=row();
-        fr.addView(button("Тест FREE TCP",v->testFree()),weight());
-        fr.addView(button("Отключить",v->adb.disconnect()),weight());
-        root.addView(fr);
+        root.addView(button("Отключить",v->adb.disconnect()),new LinearLayout.LayoutParams(-1,dp(40)));
 
         TextView adv=text("Ручной режим",13);adv.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);root.addView(adv);
         LinearLayout conn=row();
@@ -109,19 +105,42 @@ public class MainActivity extends Activity implements AdbClient.Listener {
 
     private void connectFree(){
         ip.setText(FREE_HOST);port.setText(String.valueOf(FREE_PORT));refresh();
+        ensureLan();
+        if(!lanOk()){showFreeFailure("Android не разрешил доступ к локальной сети.");return;}
+
         String local=NetworkUtils.findLocalIpv4();
-        append("\n[FREE] Цель "+FREE_HOST+":"+FREE_PORT+"\n");
-        if(local==null||!local.startsWith("192.168.43."))append("[FREE] ВНИМАНИЕ: IP телефона "+local+". Ожидается 192.168.43.x — проверьте, что телефон подключён к AP Hotspot автомобиля.\n");
-        ensureLan();if(!lanOk()){onError("Нет разрешения на локальную сеть");return;}
-        status.setText("Проверка FREE TCP…");
+        status.setText("Подключение к VOYAH FREE…");
+        append("\n[FREE] Подключение к "+FREE_HOST+":"+FREE_PORT+"\n");
+        if(local==null||!local.startsWith("192.168.43.")){
+            append("[FREE] IP телефона: "+local+". Телефон может быть подключён не к AP Hotspot автомобиля.\n");
+        }
+
         new Thread(()->{
-            String r=NetworkUtils.probe(this,FREE_HOST,FREE_PORT,3000);append("[FREE TCP] "+r+"\n");
-            if(!r.startsWith("OK")){runOnUiThread(()->status.setText("FREE TCP недоступен"));return;}
-            try{adb.connect(FREE_HOST,FREE_PORT);}catch(Exception e){onError(e.getMessage());}
-        }).start();
+            String probe=NetworkUtils.probe(this,FREE_HOST,FREE_PORT,3000);
+            if(!probe.startsWith("OK")){
+                append("[FREE] "+probe+"\n");
+                showFreeFailure("Не удалось связаться с автомобилем по 192.168.43.1:5578.\n\nПроверьте, что AP Hotspot включён и телефон подключён к Wi‑Fi VOYAH.");
+                return;
+            }
+            try{
+                adb.connect(FREE_HOST,FREE_PORT);
+            }catch(Exception e){
+                append("[ADB] "+e.getMessage()+"\n");
+                showFreeFailure("Автомобиль доступен по Wi‑Fi, но ADB-подключение не установлено.\n\n"+e.getMessage());
+            }
+        },"voyah-free-connect").start();
     }
 
-    private void testFree(){ip.setText(FREE_HOST);port.setText(String.valueOf(FREE_PORT));testTcp();}
+    private void showFreeFailure(String message){
+        runOnUiThread(()->{
+            status.setText("Подключение не удалось");
+            new AlertDialog.Builder(this)
+                    .setTitle("Не удалось подключиться к VOYAH FREE")
+                    .setMessage(message)
+                    .setPositiveButton("OK",null)
+                    .show();
+        });
+    }
 
     private void testTcp(){
         ensureLan();if(!lanOk()){onError("Нет разрешения на локальную сеть");return;}
