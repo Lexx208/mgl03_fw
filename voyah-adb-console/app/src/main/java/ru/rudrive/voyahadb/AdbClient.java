@@ -189,10 +189,25 @@ public class AdbClient {
             int code=data.length>0?(data[0]&0xff):-1;
             l.onExit(code);
         }else if(id==SH_WINDOW_SIZE){
-            // Device-side window-size events are informational for this small terminal.
+            // Informational for this compact terminal.
         }else{
             l.onText("[shell_v2] неизвестный frame id="+id+" len="+data.length+"\n");
         }
+    }
+
+    // shell_v2 uses uint32 little-endian lengths inside its 5-byte frame header.
+    private static int getLe32(byte[] b,int off){
+        return (b[off]&0xff)
+                |((b[off+1]&0xff)<<8)
+                |((b[off+2]&0xff)<<16)
+                |((b[off+3]&0xff)<<24);
+    }
+
+    private static void putLe32(byte[] b,int off,int v){
+        b[off]=(byte)(v&0xff);
+        b[off+1]=(byte)((v>>>8)&0xff);
+        b[off+2]=(byte)((v>>>16)&0xff);
+        b[off+3]=(byte)((v>>>24)&0xff);
     }
 
     public void disconnect(){disconnectInternal(true);}
@@ -220,7 +235,8 @@ public class AdbClient {
             if(out==null)throw new IOException("Нет TCP соединения");
             le(out,c);le(out,a0);le(out,a1);le(out,d.length);
             int sum=0;for(byte b:d)sum+=b&255;
-            le(out,sum);le(out,c^0xffffffff);out.write(d);out.flush();
+            le(out,sum);le(out,c^0xffffffff);
+            out.write(d);out.flush();
         }
     }
 
@@ -228,7 +244,8 @@ public class AdbClient {
         int c=ri(in),a0=ri(in),a1=ri(in),n=ri(in),sum=ri(in),magic=ri(in);
         if((c^0xffffffff)!=magic)throw new IOException("Некорректный ADB header/magic");
         if(n<0||n>1048576)throw new IOException("Некорректный payload: "+n);
-        byte[] d=rf(in,n);int x=0;for(byte b:d)x+=b&255;
+        byte[] d=rf(in,n);
+        int x=0;for(byte b:d)x+=b&255;
         if(x!=sum)throw new IOException("ADB checksum");
         return new Msg(c,a0,a1,d);
     }
@@ -238,19 +255,15 @@ public class AdbClient {
         while(o<n){int x=i.read(b,o,n-o);if(x<0)throw new EOFException("Соединение закрыто");o+=x;}
         return b;
     }
+
     private static int ri(InputStream i)throws IOException{
         int a=i.read(),b=i.read(),c=i.read(),d=i.read();
         if((a|b|c|d)<0)throw new EOFException("Соединение закрыто во время ADB header");
         return a|(b<<8)|(c<<16)|(d<<24);
     }
+
     private static void le(OutputStream o,int v)throws IOException{
         o.write(v&255);o.write((v>>>8)&255);o.write((v>>>16)&255);o.write((v>>>24)&255);
-    }
-    private static void putLe32(byte[] b,int off,int v){
-        b[off]=(byte)(v&255);b[off+1]=(byte)((v>>>8)&255);b[off+2]=(byte)((v>>>16)&255);b[off+3]=(byte)((v>>>24)&255);
-    }
-    private static int getLe32(byte[] b,int off){
-        return (b[off]&255)|((b[off+1]&255)<<8)|((b[off+2]&255)<<16)|((b[off+3]&255)<<24);
     }
 
     private static class Msg{
